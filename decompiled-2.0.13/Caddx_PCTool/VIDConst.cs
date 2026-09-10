@@ -1,0 +1,21 @@
+namespace Caddx_PCTool;
+
+public enum VIDConst
+{
+	GM_V2 = 6790,
+	ASCENT_L_GND401 = 7531,
+	ASCENT_L_SKY402 = 7532,
+	ASCENT_H_SKY482 = 7533,
+	ASCENT_L_GND = 7534,
+	ASCENT_GND_EX1 = 7535,
+	ASCENT_SKY_EX1 = 7536,
+	ASCENT_GND_EX2 = 7537,
+	ASCENT_SKY_EX2 = 7538,
+	ASCENT_GND_EX3 = 7539,
+	ASCENT_SKY_EX3 = 7540,
+	Ascent_VRX = 7541,
+	Ascent_GT_Pro = 7542,
+	Ascent_VRX_Pro = 7543,
+	Ascent_VRX_Proold = 8711,
+	RC = 7552
+}

@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk.WindowsDesktop">
+  <PropertyGroup>
+    <AssemblyName>Caddx PC Tool</AssemblyName>
+    <GenerateAssemblyInfo>False</GenerateAssemblyInfo>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>True</UseWindowsForms>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+  </PropertyGroup>
+  <PropertyGroup>
+    <LangVersion>14.0</LangVersion>
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+    <CheckForOverflowUnderflow>False</CheckForOverflowUnderflow>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationIcon>app.ico</ApplicationIcon>
+    <RootNamespace />
+  </PropertyGroup>
+  <ItemGroup />
+  <ItemGroup>
+    <Reference Include="AntdUI" />
+    <Reference Include="System.Core">
+      <HintPath>../../../../../../usr/lib/dotnet/shared/Microsoft.NETCore.App/10.0.12/System.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Newtonsoft.Json" />
+    <Reference Include="System.Management" />
+    <Reference Include="System.Xml">
+      <HintPath>../../../../../../usr/lib/dotnet/shared/Microsoft.NETCore.App/10.0.12/System.Xml.dll</HintPath>
+    </Reference>
+    <Reference Include="PdfiumViewer" />
+    <Reference Include="System.Configuration">
+      <HintPath>../../../../../../usr/lib/dotnet/shared/Microsoft.NETCore.App/10.0.12/System.Configuration.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>
