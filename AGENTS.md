@@ -3,7 +3,7 @@
 ## What this project is
 
 The user owns Caddx Ascent FPV video gear (a VTX "Ascent Lite+", an "Ascent VRX Pro"
-receiver, and a newly-acquired "Ascent GT Pro" VTX not yet tested) and wants to
+receiver, and an "Ascent GT Pro" VTX) and wants to
 configure/flash it from Linux. Caddx only ships a Windows .NET Framework 4.8 WinForms
 tool ("Caddx PC Tool", installer `CADDX_PC_Tool_V2.2.9_win_Setup.exe`, v2.2.9_C). This
 directory holds everything produced while (a) getting that tool running under Wine, and
@@ -60,24 +60,32 @@ and not ours to redistribute). To reconstruct it:
   USB-IF-assigned vendor ID — since the firmware is a USB gadget it can declare
   anything). The full set is in `Caddx_PCTool.VIDConst` (decompiled source) and is
   mirrored in `src/CaddxTool.Protocol/AscentVids.cs`. **`0x1D76` and `0x1D77` have
-  been empirically confirmed** — `0x1D76` via live `udevadm` capture (on the
-  Ascent Lite+ — see "confusing VID/product-name note" below), `0x1D77` via the
-  native Linux tool's own sysfs-based discovery connecting to a real Ascent VRX
-  Pro (`VID=1d77 PID=a4a2`, matching `VIDConst`'s `Ascent_VRX_Pro` mapping — unlike
-  the Lite+, this one's VID naming *does* match the retail product). The rest of
-  the table is taken from decompiled source only, not yet verified against real
-  hardware.
+  been empirically confirmed** — `0x1D76` via live `udevadm` capture and the
+  native tool's own sysfs discovery (on *both* an Ascent Lite+ and a real Ascent
+  GT Pro — see "confusing VID/product-name note" below), `0x1D77` via the native
+  Linux tool's sysfs discovery connecting to a real Ascent VRX Pro (`VID=1d77
+  PID=a4a2`, matching `VIDConst`'s `Ascent_VRX_Pro` mapping — unlike `0x1D76`,
+  this one's VID naming *does* match the retail product and isn't shared with
+  anything else observed so far). The rest of the table is taken from decompiled
+  source only, not yet verified against real hardware.
 - **Confusing VID/product-name note:** `0x1D76` decodes as `Ascent_GT_Pro` in
-  `VIDConst`, but was observed on an **Ascent Lite+** unit (firmware reported itself as
-  `Ascent_lite_plus` / `Ascent_H_Sky_18_21_10`). Don't assume the VID naming maps
-  1:1 to retail product names — trust the live device-info response
-  (`ResDeviceInfoV2.DeviceName`/`FirmwareInfo`) over the VID.
+  `VIDConst`, but is **genuinely shared by two different retail products** — a
+  real Ascent GT Pro (`Ascent_GT_pro` / `Ascent_G_Sky_17_5_15` /
+  `FPV-Ascent-Sky-486-V1.0-1.0`) *and* a real Ascent Lite+ (`Ascent_lite_plus` /
+  `Ascent_H_Sky_18_21_10` / `FPV-Ascent-Sky-472-V1.3-1.1`) both enumerate with
+  `VID=1d76`. So this isn't just a naming quirk — the VID alone cannot
+  distinguish these two products at all; only the live device-info response
+  (`ResDeviceInfoV2.DeviceName`/`FirmwareInfo`/`HardwareVersion`) can. Don't
+  assume any VID uniquely identifies a product without confirming live.
+- Why the vendor app shows the GT Pro as "unsupported" — see Patch 4 in the
+  patcher section below, which already covers `AscentDeviceNameResolver`'s
+  consumer-build allowlist gate and how it's patched around.
 - Devices/firmware seen so far:
   | Product (as connected)     | DeviceName          | Firmware               | Hardware                        | VID (real/assumed) |
   |-----------------------------|---------------------|-------------------------|----------------------------------|---------------------|
   | Ascent Lite+ (VTX)          | Ascent_lite_plus     | Ascent_H_Sky_18_21_10   | FPV-Ascent-Sky-472-V1.3-1.1      | `1d76` (confirmed via udev) |
   | Ascent VRX Pro (receiver)   | Ascent_VRX_pro       | Ascent_VRX_Pro_18_21_7  | Ascent-VRX-Pro-V3.0-1.0          | `1d77` (confirmed via native tool's sysfs discovery; the Wine-track patcher still reports a hardcoded `1d76` for any device — see patcher section, unaffected by this) |
-  | Ascent GT Pro (VTX)         | not yet tested       | —                       | —                                 | — |
+  | Ascent GT Pro (VTX)         | Ascent_GT_pro        | Ascent_G_Sky_17_5_15    | FPV-Ascent-Sky-486-V1.0-1.0       | `1d76` (confirmed via native tool's sysfs discovery — **same VID as the Lite+**, see note below) |
 
 ## What's in `decompiled/`
 
@@ -271,6 +279,22 @@ Includes `WriteLog.writeLog(...)` diagnostic calls (writes to
 `current/Log.txt`, distinct from the dated `current/Log/YYYY-MM-DD.log`) confirming
 the env var value seen and whether the unlock applied — useful if this is ever
 suspected of regressing again.
+
+**Patch 4 — drop the consumer-build device allowlist gate
+(`AscentDeviceNameResolver.IsConsumerVersion()`):** `ResolveDisplayName()` only
+trusts its full device-name lookup table when `IsConsumerVersion(Program.
+SoftwareVersion)` is false; that check looks for a `_C` marker, which this
+retail installer's version (`v2.2.9_C`) always has. For "consumer" builds it
+instead requires the device name to appear in a small hardcoded allowlist
+(`ConsumerAllowedDeviceNameKeys`) that Caddx never updated for newer models —
+`ascent_gt_pro` (and its z40/z8/hub variants) isn't in it, even though the rest
+of the resolution/display code for those models is fully present and
+functional. This is why the stock retail app shows a connected GT Pro as
+"unsupported" — a deliberate product-tier gate, not a technical limitation.
+Patch makes `IsConsumerVersion()` unconditionally return `false`, so
+`ResolveDisplayName` always takes the non-consumer path and recognizes every
+device the resolver already knows how to name. **Confirmed working against a
+real Ascent GT Pro.**
 
 Launch: same binary serves both modes.
 ```bash
