@@ -6,10 +6,11 @@ namespace CaddxTool.Protocol;
 // Values are lowercase hex, matching the format Linux sysfs idVendor/idProduct files use.
 //
 // The mapped name is VIDConst's own enum member name, not a verified retail
-// product name — confirmed misleading at least once already (0x1D76 decodes as
-// Ascent_GT_Pro here but was observed live on an Ascent Lite+ unit; see
-// AGENTS.md's "confusing VID/product-name note"). Treat it as a hint in UI
-// listings, not a substitute for the live device-info response.
+// product name, and isn't even guaranteed to be unique per product — confirmed
+// live that 0x1D76 (VIDConst's "Ascent_GT_Pro") is shared by both a real Ascent
+// GT Pro and a real Ascent Lite+ unit; see AGENTS.md's "confusing VID/
+// product-name note". Treat it as a hint in UI listings, not a substitute for
+// the live device-info response.
 public static class AscentVids
 {
     public static readonly System.Collections.Generic.IReadOnlyDictionary<string, string> KnownVids =
@@ -27,7 +28,12 @@ public static class AscentVids
             ["1d73"] = "ASCENT_GND_EX3",
             ["1d74"] = "ASCENT_SKY_EX3",
             ["1d75"] = "Ascent_VRX",
-            ["1d76"] = "Ascent_GT_Pro",
+            ["1d76"] = "Ascent_GT_Pro / Lite+", // genuinely shared by both products at the VID level —
+                                                 // confirmed live on both a real GT Pro and a real Lite+
+                                                 // unit, distinguishable only via the live device-info
+                                                 // response (DeviceName/FirmwareInfo/HardwareVersion),
+                                                 // not the VID
+
             ["1d77"] = "Ascent_VRX_Pro", // confirmed live — matches the retail name here
             ["1d78"] = "Ascent_VRX_Max",
             ["1d79"] = "ASCENT_VRX_Cine",
