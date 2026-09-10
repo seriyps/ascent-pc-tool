@@ -1,0 +1,36 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="640" d:DesignHeight="560"
+        x:Class="CaddxTool.Avalonia.MainWindow"
+        Title="Caddx Ascent Tool"
+        Width="640" Height="600">
+    <ScrollViewer>
+        <StackPanel Margin="16" Spacing="10">
+
+            <TextBlock Text="Device" FontWeight="Bold" FontSize="16"/>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Name="BtnScan" Content="Scan" Click="OnScanClick"/>
+                <Button Name="BtnConnect" Content="Connect" Click="OnConnectClick" IsEnabled="False"/>
+            </StackPanel>
+            <ListBox Name="LstPorts" Height="90" SelectionChanged="OnPortSelectionChanged"/>
+            <TextBlock Name="TxtDeviceInfo" TextWrapping="Wrap" Text="Not connected."/>
+
+            <Separator Margin="0,10"/>
+
+            <TextBlock Text="Firmware upgrade" FontWeight="Bold" FontSize="16"/>
+            <TextBlock TextWrapping="Wrap" Foreground="OrangeRed"
+                       Text="This writes to the device's flash. A failed or interrupted upgrade can brick the hardware — double-check the file before confirming."/>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Name="BtnChooseFile" Content="Choose .bin file..." Click="OnChooseFileClick" IsEnabled="False"/>
+                <TextBlock Name="TxtFilePath" Text="(no file selected)" VerticalAlignment="Center"/>
+            </StackPanel>
+            <Button Name="BtnUpgrade" Content="Upgrade" Click="OnUpgradeClick" IsEnabled="False"/>
+            <ProgressBar Name="ProgressUpgrade" Minimum="0" Maximum="100" Height="18"/>
+            <TextBlock Name="TxtStatus" TextWrapping="Wrap"/>
+            <TextBox Name="TxtLog" Height="150" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                     FontFamily="monospace"/>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

@@ -1,0 +1,15 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="CaddxTool.Avalonia.ConfirmDialog"
+        Title="Confirm"
+        Width="420" SizeToContent="Height"
+        CanResize="False"
+        WindowStartupLocation="CenterOwner">
+    <StackPanel Margin="16" Spacing="16">
+        <TextBlock Name="TxtMessage" TextWrapping="Wrap"/>
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+            <Button Name="BtnNo" Content="Cancel" Click="OnNoClick"/>
+            <Button Name="BtnYes" Content="Upgrade" Click="OnYesClick"/>
+        </StackPanel>
+    </StackPanel>
+</Window>

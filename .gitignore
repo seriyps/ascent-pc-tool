@@ -1,0 +1,23 @@
+# Wine track + vendor artifacts — not tracked for now, native rewrite (src/) is the focus
+/origin/
+/decompiled/
+/patcher/
+/screenshots/
+
+# Internal project notes (document the Wine/decompile track in detail) — not tracked for now
+/AGENTS.md
+/src/PROJECT.md
+
+# Claude Code session transcripts, not project source
+/.agent-shell/
+
+# .NET build output
+bin/
+obj/
+
+# IDE/editor cruft
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
