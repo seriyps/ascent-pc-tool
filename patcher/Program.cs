@@ -536,6 +536,36 @@ class Program
             Console.WriteLine("Inserted power-user unlock (with diagnostic logging) into Program.Main().");
         }
 
+        // --- Patch 4: drop the "consumer build" device-allowlist gate ---
+        // AscentDeviceNameResolver.ResolveDisplayName() only trusts the full
+        // device-name lookup table when IsConsumerVersion(Program.SoftwareVersion)
+        // is false. That check looks for a "_C" marker in the version string —
+        // this retail installer ships v2.2.9_C, so it's always true here. For
+        // "consumer" builds, ResolveDisplayName instead requires the device name
+        // to appear in a small hardcoded allowlist (ConsumerAllowedDeviceNameKeys)
+        // that Caddx never updated for newer models — "ascent_gt_pro" (and others,
+        // e.g. its z40/z8/hub variants) aren't in it, even though the rest of the
+        // resolution/display code for those models (name mapping, icon resources)
+        // is fully present and functional. Rather than allowlisting GT Pro
+        // specifically, make IsConsumerVersion() unconditionally return false, so
+        // ResolveDisplayName always takes the same path non-consumer builds do
+        // (ResolveFromDeviceName first, falling back to ResolveFromVersionFields)
+        // — this unlocks every device the resolver already knows how to name.
+        {
+            var resolverType = module.Types.First(t => t.FullName == "Caddx_PCTool.AscentDeviceNameResolver");
+            var isConsumerVersionMethod = resolverType.Methods.First(m => m.Name == "IsConsumerVersion");
+
+            isConsumerVersionMethod.Body.Instructions.Clear();
+            isConsumerVersionMethod.Body.Variables.Clear();
+            isConsumerVersionMethod.Body.ExceptionHandlers.Clear();
+
+            var rIl = isConsumerVersionMethod.Body.GetILProcessor();
+            rIl.Emit(OpCodes.Ldc_I4_0);
+            rIl.Emit(OpCodes.Ret);
+
+            Console.WriteLine("Patched AscentDeviceNameResolver.IsConsumerVersion() to always return false.");
+        }
+
         // Strip default-value constants whose type lives in assemblies we can't
         // reliably resolve here (e.g. System.IO.Ports.Handshake). This is safe:
         // already-compiled call sites always pass arguments explicitly, so the
