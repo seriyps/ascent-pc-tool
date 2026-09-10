@@ -1,0 +1,14 @@
+namespace Caddx_PCTool;
+
+public enum FpvSkyRfBoardName : byte
+{
+	FPV_SKY_RF_486 = 16,
+	FPV_SKY_RF_420_5500 = 32,
+	FPV_SKY_RF_420_6500 = 48,
+	FPV_SKY_RF_422 = 80,
+	FPV_SKY_RF_420_3600 = 96,
+	FPV_SKY_RF_426 = 112,
+	FPV_SKY_RF_424 = 128,
+	FPV_SKY_RF_428 = 144,
+	FPV_SKY_RF_424_v11 = 160
+}

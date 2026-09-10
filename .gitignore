@@ -1,11 +1,11 @@
-# Wine track + vendor artifacts — not tracked for now, native rewrite (src/) is the focus
+# Vendor installer/binaries — proprietary, large; see AGENTS.md's "Directory layout"
+# section for how to reconstruct this from Caddx's own download center
 /origin/
-/decompiled/
-/patcher/
-/screenshots/
 
-# Internal project notes (document the Wine/decompile track in detail) — not tracked for now
-/AGENTS.md
+# Native-rewrite screenshots change too often right now to track yet
+/screenshots/native/
+
+# Internal project notes for the native rewrite — not tracked here yet
 /src/PROJECT.md
 
 # Claude Code session transcripts, not project source

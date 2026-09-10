@@ -1,0 +1,5 @@
+namespace Caddx_PCTool;
+
+public sealed class SerialPortAcquireResult : SerialPortSessionResult
+{
+}
