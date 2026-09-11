@@ -241,6 +241,166 @@ class Program
         il.Emit(OpCodes.Blt, lblLoopBody);
 
         il.Append(lblAfterLoop);
+
+        // --- Patch 5 (wire-capture-harness only, opt-in via CADDX_FAKE_PORT) ---
+        // Wine's SerialPort.GetPortNames() only ever returns COM1-32 (the static
+        // legacy ttyS0-31 mapping) plus whatever COMn it dynamically assigns for
+        // real, udev-detected USB-serial hardware — confirmed empirically (a
+        // minimal GetPortNames() probe compiled with the prefix's own csc.exe)
+        // that this list is regenerated live and excludes anything else,
+        // regardless of dosdevices/comNN symlinks or manual
+        // HKLM\HARDWARE\DEVICEMAP\SERIALCOMM registry edits pointing at one (that
+        // key is itself volatile/synthesized fresh, not read back from what was
+        // written). So a socat-created PTY — used to run this exe against
+        // CaddxTool.FakeDevice for wire-protocol comparison, see
+        // src/PROJECT.md's "Wire-capture harness" — never shows up on its own.
+        //
+        // Merely appending a synthetic UsbDevInfo to the returned `list` (as an
+        // earlier version of this patch did) is not enough on its own: that list
+        // feeds UpdateDeviceSnapshot(list), which calls AddDevice() for anything
+        // not already tracked, which schedules VerifyDeviceAvailability() 300ms
+        // later — and THAT method calls the raw, unpatched SerialPort.
+        // GetPortNames() again, fails to find our fake port there (same root
+        // cause as above), and calls RemoveDevice(), firing a "device unplugged"
+        // event and killing the session before a single byte is ever sent.
+        // Confirmed via the app's own Log/*.log ("拔出设备,串口名=COM50" right
+        // after "启动wmi监听") and an empty CaddxTool.FakeDevice capture log.
+        // Patch 6 (below) guards RemoveDevice as defense-in-depth against the
+        // separate broken WMI OnDeviceRemoved watcher, but doesn't fix this: a
+        // no-op RemoveDevice still leaves VerifyDeviceAvailability's caller
+        // returning early right after calling it, before ever reaching
+        // DeviceConnected?.Invoke(...) — so the auto-handshake still never
+        // starts. So instead of relying on the normal AddDevice/
+        // VerifyDeviceAvailability path at all, this block does that path's
+        // *entire* job itself, synchronously, right here: registers the fake
+        // device directly in _connectedDevices/_portToDeviceIdMap and fires
+        // DeviceConnected immediately. That has a useful side effect beyond just
+        // skipping the bad check: since _connectedDevices already contains our
+        // port by the time UpdateDeviceSnapshot(list) runs (just below), its own
+        // `if (!_connectedDevices.ContainsKey(...)) AddDevice(...)` check is
+        // false for our entry, so AddDevice/VerifyDeviceAvailability never gets
+        // scheduled for it at all. No effect on normal real-hardware usage
+        // unless CADDX_FAKE_PORT is set.
+        {
+            var environmentTypeRef5 = new TypeReference("System", "Environment", module, mscorlibRef);
+            var getEnvVar5 = new MethodReference("GetEnvironmentVariable", stringType, environmentTypeRef5) { HasThis = false };
+            getEnvVar5.Parameters.Add(new ParameterDefinition(stringType));
+            var stringIsNullOrEmpty = new MethodReference("IsNullOrEmpty", boolType, stringType) { HasThis = false };
+            stringIsNullOrEmpty.Parameters.Add(new ParameterDefinition(stringType));
+
+            var vFakePort = new VariableDefinition(stringType);
+            method.Body.Variables.Add(vFakePort);
+
+            var lblSkipFakePort = il.Create(OpCodes.Nop);
+
+            il.Emit(OpCodes.Ldstr, "CADDX_FAKE_PORT");
+            il.Emit(OpCodes.Call, getEnvVar5);
+            il.Emit(OpCodes.Stloc, vFakePort);
+
+            il.Emit(OpCodes.Ldloc, vFakePort);
+            il.Emit(OpCodes.Call, stringIsNullOrEmpty);
+            il.Emit(OpCodes.Brtrue, lblSkipFakePort);
+
+            il.Emit(OpCodes.Newobj, usbDevInfoCtor);
+            il.Emit(OpCodes.Stloc, vInfo);
+
+            il.Emit(OpCodes.Ldloc, vInfo);
+            il.Emit(OpCodes.Ldloc, vFakePort);
+            il.Emit(OpCodes.Callvirt, setPortName);
+
+            il.Emit(OpCodes.Ldloc, vInfo);
+            il.Emit(OpCodes.Ldstr, "1D76");
+            il.Emit(OpCodes.Callvirt, setVid);
+
+            il.Emit(OpCodes.Ldloc, vInfo);
+            il.Emit(OpCodes.Ldstr, "0101");
+            il.Emit(OpCodes.Callvirt, setPid);
+
+            il.Emit(OpCodes.Ldloc, vInfo);
+            il.Emit(OpCodes.Ldstr, "Caddx Ascent (wire-capture test port)");
+            il.Emit(OpCodes.Callvirt, setDevName);
+
+            il.Emit(OpCodes.Ldloc, vInfo);
+            il.Emit(OpCodes.Call, dateTimeNowGetter);
+            il.Emit(OpCodes.Callvirt, setConnectedTime);
+
+            il.Emit(OpCodes.Ldloc, vList);
+            il.Emit(OpCodes.Ldloc, vInfo);
+            il.Emit(OpCodes.Callvirt, listAdd);
+
+            // --- Directly do AddDevice()+VerifyDeviceAvailability()'s success-path
+            // job ourselves: _connectedDevices.TryAdd(...), _portToDeviceIdMap[...] =
+            // ..., info.IsInserted = true, DeviceConnected?.Invoke(this, info). ---
+            var concurrentDictOpenRef = new TypeReference("System.Collections.Concurrent", "ConcurrentDictionary`2", module, mscorlibRef);
+            concurrentDictOpenRef.GenericParameters.Add(new GenericParameter("TKey", concurrentDictOpenRef));
+            concurrentDictOpenRef.GenericParameters.Add(new GenericParameter("TValue", concurrentDictOpenRef));
+
+            var connectedDevicesDictType = new GenericInstanceType(concurrentDictOpenRef);
+            connectedDevicesDictType.GenericArguments.Add(stringType);
+            connectedDevicesDictType.GenericArguments.Add(usbDevInfoType);
+            var tryAddConnected = new MethodReference("TryAdd", boolType, connectedDevicesDictType) { HasThis = true };
+            tryAddConnected.Parameters.Add(new ParameterDefinition(concurrentDictOpenRef.GenericParameters[0]));
+            tryAddConnected.Parameters.Add(new ParameterDefinition(concurrentDictOpenRef.GenericParameters[1]));
+
+            var portMapDictType = new GenericInstanceType(concurrentDictOpenRef);
+            portMapDictType.GenericArguments.Add(stringType);
+            portMapDictType.GenericArguments.Add(stringType);
+            var setItemPortMap = new MethodReference("set_Item", module.TypeSystem.Void, portMapDictType) { HasThis = true };
+            setItemPortMap.Parameters.Add(new ParameterDefinition(concurrentDictOpenRef.GenericParameters[0]));
+            setItemPortMap.Parameters.Add(new ParameterDefinition(concurrentDictOpenRef.GenericParameters[1]));
+
+            var setIsInserted = usbDevInfoType.Methods.First(m => m.Name == "set_IsInserted");
+
+            var eventHandlerOpenRef = new TypeReference("System", "EventHandler`1", module, mscorlibRef);
+            eventHandlerOpenRef.GenericParameters.Add(new GenericParameter("T", eventHandlerOpenRef));
+            var deviceConnectedHandlerType = new GenericInstanceType(eventHandlerOpenRef);
+            deviceConnectedHandlerType.GenericArguments.Add(usbDevInfoType);
+            var invokeDeviceConnected = new MethodReference("Invoke", module.TypeSystem.Void, deviceConnectedHandlerType) { HasThis = true };
+            invokeDeviceConnected.Parameters.Add(new ParameterDefinition(module.TypeSystem.Object));
+            invokeDeviceConnected.Parameters.Add(new ParameterDefinition(eventHandlerOpenRef.GenericParameters[0]));
+
+            var connectedDevicesField = usbMonitorType.Fields.First(f => f.Name == "_connectedDevices");
+            var portToDeviceIdMapField = usbMonitorType.Fields.First(f => f.Name == "_portToDeviceIdMap");
+            var deviceConnectedField = usbMonitorType.Fields.First(f => f.Name == "DeviceConnected");
+
+            // _connectedDevices.TryAdd(fakePort, info); (discard bool result)
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, connectedDevicesField);
+            il.Emit(OpCodes.Ldloc, vFakePort);
+            il.Emit(OpCodes.Ldloc, vInfo);
+            il.Emit(OpCodes.Callvirt, tryAddConnected);
+            il.Emit(OpCodes.Pop);
+
+            // _portToDeviceIdMap[fakePort] = fakePort;
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, portToDeviceIdMapField);
+            il.Emit(OpCodes.Ldloc, vFakePort);
+            il.Emit(OpCodes.Ldloc, vFakePort);
+            il.Emit(OpCodes.Callvirt, setItemPortMap);
+
+            // info.IsInserted = true;
+            il.Emit(OpCodes.Ldloc, vInfo);
+            il.Emit(OpCodes.Ldc_I4_1);
+            il.Emit(OpCodes.Callvirt, setIsInserted);
+
+            // DeviceConnected?.Invoke(this, info);
+            var lblDeviceConnectedNull = il.Create(OpCodes.Nop);
+            var lblAfterDeviceConnected = il.Create(OpCodes.Nop);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldfld, deviceConnectedField);
+            il.Emit(OpCodes.Dup);
+            il.Emit(OpCodes.Brtrue, lblDeviceConnectedNull);
+            il.Emit(OpCodes.Pop);
+            il.Emit(OpCodes.Br, lblAfterDeviceConnected);
+            il.Append(lblDeviceConnectedNull);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldloc, vInfo);
+            il.Emit(OpCodes.Callvirt, invokeDeviceConnected);
+            il.Append(lblAfterDeviceConnected);
+
+            il.Append(lblSkipFakePort);
+        }
+
         // if (_isMonitoring) UpdateDeviceSnapshot(list);
         il.Emit(OpCodes.Ldarg_0);
         var isMonitoringField = usbMonitorType.Fields.First(f => f.Name == "_isMonitoring");
@@ -275,6 +435,66 @@ class Program
         method.Body.ExceptionHandlers.Add(handler);
 
         method.Body.InitLocals = true;
+
+        // --- Patch 6 (wire-capture-harness only, opt-in via CADDX_FAKE_PORT) ---
+        // Patch 5 gets the synthetic port into the initial ManualSearchDevices()
+        // scan, but that's not the end of the story: UsbSerialMonitor.AddDevice()
+        // schedules VerifyDeviceAvailability(deviceInfo) 300ms later, which calls
+        // the RAW, still-unpatched SerialPort.GetPortNames() again to double-check
+        // the port is still there — and since that raw call obviously never
+        // includes our fake port (see the empirical GetPortNames() finding in
+        // Patch 5's comment above), it immediately calls RemoveDevice(), firing a
+        // "device unplugged" event and killing the session before a single byte
+        // gets sent. Confirmed via the app's own Log/*.log ("拔出设备,串口名=COM50"
+        // right after "启动wmi监听") and an empty CaddxTool.FakeDevice capture log
+        // — zero traffic ever reached the fake device.
+        // RemoveDevice(string deviceId, string portName) is the single common
+        // choke point every removal path goes through (VerifyDeviceAvailability,
+        // UpdateDeviceSnapshot's diffing, and the separate broken WMI
+        // OnDeviceRemoved watcher all call it) — much simpler to guard here than
+        // to patch VerifyDeviceAvailability's compiler-generated async state
+        // machine directly. No effect on normal real-hardware usage: the guard
+        // only no-ops when portName matches CADDX_FAKE_PORT.
+        {
+            var removeDeviceMethod = usbMonitorType.Methods.First(m => m.Name == "RemoveDevice");
+            var rdIl = removeDeviceMethod.Body.GetILProcessor();
+            var firstInstr = removeDeviceMethod.Body.Instructions.First();
+
+            var environmentTypeRef6 = new TypeReference("System", "Environment", module, mscorlibRef);
+            var getEnvVar6 = new MethodReference("GetEnvironmentVariable", stringType, environmentTypeRef6) { HasThis = false };
+            getEnvVar6.Parameters.Add(new ParameterDefinition(stringType));
+            var stringIsNullOrEmpty6 = new MethodReference("IsNullOrEmpty", boolType, stringType) { HasThis = false };
+            stringIsNullOrEmpty6.Parameters.Add(new ParameterDefinition(stringType));
+
+            var vFakePort6 = new VariableDefinition(stringType);
+            removeDeviceMethod.Body.Variables.Add(vFakePort6);
+
+            var lblSkipGuard = firstInstr; // reuse as branch target (insert before it)
+
+            var newInstrs = new[]
+            {
+                // fakePort = Environment.GetEnvironmentVariable("CADDX_FAKE_PORT")
+                rdIl.Create(OpCodes.Ldstr, "CADDX_FAKE_PORT"),
+                rdIl.Create(OpCodes.Call, getEnvVar6),
+                rdIl.Create(OpCodes.Stloc, vFakePort6),
+                // if (string.IsNullOrEmpty(fakePort)) goto normal method body;
+                rdIl.Create(OpCodes.Ldloc, vFakePort6),
+                rdIl.Create(OpCodes.Call, stringIsNullOrEmpty6),
+                rdIl.Create(OpCodes.Brtrue, lblSkipGuard),
+                // if (portName != fakePort) goto normal method body;
+                rdIl.Create(OpCodes.Ldarg_2),
+                rdIl.Create(OpCodes.Ldloc, vFakePort6),
+                rdIl.Create(OpCodes.Call, stringEquals),
+                rdIl.Create(OpCodes.Brfalse, lblSkipGuard),
+                // it's our fake device — do nothing, don't let it be removed
+                rdIl.Create(OpCodes.Ret),
+            };
+            foreach (var instr in newInstrs)
+            {
+                rdIl.InsertBefore(firstInstr, instr);
+            }
+            Console.WriteLine("Inserted CADDX_FAKE_PORT removal guard into UsbSerialMonitor.RemoveDevice().");
+        }
 
         // --- Same WMI-bypass fix, applied to updateChannel.ManualSearchDevices ---
         // The bb_freq screen (updateChannel.cs) has its own separate, duplicated
@@ -566,6 +786,81 @@ class Program
             Console.WriteLine("Patched AscentDeviceNameResolver.IsConsumerVersion() to always return false.");
         }
 
+        // --- Patch 7: widen the firmware-upgrade ack-retry/timeout constants ---
+        // UpgradeProcessFSM.SendWithRetryGuard/SendWithRetryGuardDelay (the two
+        // wrappers every upgrade-flow command funnels through: RemoteUpgrade,
+        // SendFileStart/Data/End, UpgradeStatus, GetBbFreq, SetBbFreq,
+        // FactoryReset) hardcode retryIntervalMs=2000, totalTimeoutMs=8000,
+        // sendTimeoutMs=3000 as bare int literals at their one call site each to
+        // UsbSerialportFSM.SendWithAckGuard(Delay) — confirmed via decompiled
+        // source, not named consts (the class-level AckRetryIntervalMs/
+        // AckTotalTimeoutMs consts exist but are dead, inlined nowhere).
+        //
+        // Those numbers assume a real serial link, where an ack for even a 1MB
+        // SENDFILE_DATA chunk (the real device's own advertised ReceiveMaxSize)
+        // comes back in well under a second. That holds for real USB-CDC-ACM
+        // hardware, which transfers at USB speed regardless of the nominal
+        // "baud rate" — but running this app under Wine against a
+        // wire-capture-harness fake device (see src/PROJECT.md's "Wire-capture
+        // harness") hits a different wall entirely: Wine's own serial-write path
+        // paces SerialPort.Write() to the *configured* baud rate even when the
+        // backing device (a tty0tty null-modem pair, needed since plain socat
+        // PTYs fail ioctl(TIOCMGET) and never even open) could move the bytes
+        // instantly. Confirmed empirically with a minimal compiled probe:
+        // writing 200,000 bytes at 115200 baud took ~17.4s under Wine — exact
+        // UART timing, not a device-side delay. Even at the highest baud Wine/
+        // .NET's SerialPort will accept here (131072 — anything above throws
+        // ArgumentOutOfRangeException), a full 1MB chunk still takes ~80s to
+        // write, blowing straight through the original 8000ms total-ack-wait
+        // regardless of retries.
+        //
+        // Widening these three constants is the only lever left on the app side
+        // (the transport's actual byte-for-byte speed can't be fixed without
+        // fixing Wine's serial emulation itself). Applied unconditionally, not
+        // gated behind CADDX_FAKE_PORT like Patches 5/6: unlike those two, this
+        // one only ever *widens* a wait — real hardware still acks near-
+        // instantly and never notices the difference, so there's no behavior
+        // change to guard against on a genuine device.
+        //
+        // First attempt used retryIntervalMs=5000/totalTimeoutMs=180000/
+        // sendTimeoutMs=120000 and still failed — root cause: at 115200 baud a
+        // full 1MB chunk write alone takes ~91s (SendWithAckGuard's blocking
+        // Write() call has to finish before it even starts waiting for an ack),
+        // so a 5000ms retryIntervalMs gives up and resends the *entire* chunk
+        // long before the first attempt's ack could physically have arrived —
+        // confirmed in the capture log (seq=4 retry=1 resending the same full
+        // 1,048,576-byte payload). retryIntervalMs must itself exceed the
+        // worst-case per-chunk write time, not just totalTimeoutMs. Revised
+        // with real margin over the ~91s floor: retryIntervalMs 2000->200000,
+        // totalTimeoutMs 8000->600000 (room for ~3 real attempts if ever
+        // needed), sendTimeoutMs 3000->200000 (must also clear the ~91s
+        // blocking-write floor, since it gates that same Write() call).
+        {
+            var upgradeFsmType = module.Types.First(t => t.FullName == "Caddx_PCTool.UpgradeProcessFSM");
+            var retryGuardMethods = new[]
+            {
+                upgradeFsmType.Methods.First(m => m.Name == "SendWithRetryGuard"),
+                upgradeFsmType.Methods.First(m => m.Name == "SendWithRetryGuardDelay"),
+            };
+
+            int patchedTriplets = 0;
+            foreach (var m in retryGuardMethods)
+            {
+                patchedTriplets += RewriteLiteral(m, 2000, 200000);
+                patchedTriplets += RewriteLiteral(m, 8000, 600000);
+                patchedTriplets += RewriteLiteral(m, 3000, 200000);
+            }
+
+            if (patchedTriplets != 6) // 3 literals x 2 methods
+            {
+                throw new InvalidOperationException(
+                    "Patch 7: expected exactly 6 literal rewrites (3 per method x 2 methods), got " + patchedTriplets +
+                    " — UpgradeProcessFSM's IL shape no longer matches what this patch assumes; re-check the decompiled source.");
+            }
+
+            Console.WriteLine("Widened SendWithRetryGuard/SendWithRetryGuardDelay ack timeouts (2000/8000/3000ms -> 200000/600000/200000ms).");
+        }
+
         // Strip default-value constants whose type lives in assemblies we can't
         // reliably resolve here (e.g. System.IO.Ports.Handshake). This is safe:
         // already-compiled call sites always pass arguments explicitly, so the
@@ -600,5 +895,23 @@ class Program
         asm.Write(outPath, writeParams);
         Console.WriteLine("Patched OK -> " + outPath);
         return 0;
+    }
+
+    // Rewrites every `ldc.i4 oldValue` instruction operand in method's body to
+    // newValue. Ldc_I4 (not Ldc_I4_S) is expected here since all values patched
+    // via this helper are outside the sbyte short-form range. Returns the number
+    // of instructions rewritten, so callers can assert the expected count.
+    static int RewriteLiteral(MethodDefinition method, int oldValue, int newValue)
+    {
+        int count = 0;
+        foreach (var instr in method.Body.Instructions)
+        {
+            if (instr.OpCode == OpCodes.Ldc_I4 && instr.Operand is int i && i == oldValue)
+            {
+                instr.Operand = newValue;
+                count++;
+            }
+        }
+        return count;
     }
 }

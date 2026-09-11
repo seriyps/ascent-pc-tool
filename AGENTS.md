@@ -167,6 +167,74 @@ Key findings from reading it:
   gimbal owned — "nice to have, not now").
 - **Wire protocol** — see `src/PROJECT.md` "Protocol reference" for the full writeup;
   it's ported into `src/CaddxTool.Protocol` and has been validated live.
+- **Two competing upgrade-flow implementations exist in the decompiled source —
+  only one is actually wired up.** `UpgradeProcessFSM.cs` (a synchronous,
+  callback-driven state machine over `UsbSerialportFSM`) is the one really
+  driving the shipped retail upgrade screen: `AscentUpdataFrm.cs` constructs it
+  as `GD.Inst.UpgFSM` and calls `.Start()`/`.SetFile()` on it directly (grep-
+  confirmed). `FirmwareUpgradeFlowV2.cs` (a modern `async`/`await` rewrite over
+  `ArTransportV2`, using `Lang.T("v2.*")` string keys instead of `upg_fsm.*`) is
+  **never instantiated anywhere** in this build (grep-confirmed: no
+  `new FirmwareUpgradeFlowV2` call site exists) — dead code, presumably a
+  planned refactor that never shipped. Our native port
+  (`src/CaddxTool.Protocol/FirmwareUpgradeFlow.cs`) was mechanically ported from
+  `FirmwareUpgradeFlowV2` per the original Phase-1 plan — reasonable at the
+  time (cleaner async shape, and it does share the same command IDs/error codes
+  with the live FSM), but it means our progress-reporting granularity and one
+  timing constant were sourced from the *unused* implementation rather than the
+  one Caddx actually tests and ships. Worth reconciling — see the comparison
+  below and the note added to `src/PROJECT.md`'s next steps.
+- **`UpgradeProcessFSM`'s actual stage sequence** (state → `Lang.T(...)` key →
+  percent, in order emitted during `Start()`'s automatic run — this *is* the
+  literal source of the five stage labels visible in
+  `screenshots/upgrade/01`–`07`, now with the gaps between screenshots filled
+  in and the exact percents attached):
+  1. `Reboot_Clean` → cmd 3 "clean" sent, no progress event.
+  2. `WaitCleanOnline` (`Send_ReopenCOM`, entered right after) →
+     `upg_fsm.reconnecting` @ **8%** → *(reconnect succeeds)* →
+     `upg_fsm.device_reconnected_ready` @ **10%** → advances to `RemoteUpgrade`.
+  3. `RemoteUpgrade` → on send: `upg_fsm.device_ready_enter_upgrade` @ **13%**;
+     on ack (cmd 114): `upg_fsm.upgrade_mode_entered_start_transfer` @ **15%**.
+  4. `SendFileStart` → on send success: `upg_fsm.start_transfer` @ **17%**.
+  5. `SendFileData` (per chunk) → `upg_fsm.transfer_in_progress`, no fixed
+     percent attached in this event (UI must derive it from bytes-sent, same
+     linear-interpolation idea `FirmwareUpgradeFlowV2` makes explicit as
+     `0.17 + 0.43 * fileSession.Progress`).
+  6. `SendFileEnd` ack (cmd 117, normal-upgrade branch, not RC-mode/json) →
+     `upg_fsm.check_upgrade_status` @ **65%**, advances to `UpgradeStatus`.
+  7. `UpgradeStatus` poll loop (cmd 118, up to 200×) → while still verifying:
+     `upg_fsm.loading_firmware`, again no fixed percent in the event itself
+     (derive from `resUpgradeStatus.Percent`, same idea as `FirmwareUpgradeFlowV2`'s
+     explicit `0.65 + percent * 0.0034`); once `Percent >= 100`:
+     `upg_fsm.upgrade_success_restarting` @ **100%**, then `Sleep(500)` and
+     advance to `Completed`.
+  8. `Completed` (`_isAutoUpgrade` cleared first, so `Send_ReopenCOM` takes its
+     other branch this time) → after reconnect: `upg_fsm.upgrade_complete` @
+     **100%**, then a final silent `Send_FindDevice(suppressUiFail: true)` to
+     refresh the displayed device info (failure here is swallowed, matching
+     screenshot `07`'s Firmware field already showing the new version).
+  Mapping to the screenshots: `03`=`reconnecting`(8%), `04`=`transfer_in_progress`
+  (interpolated, captured at 25%), `05`=`loading_firmware` (interpolated,
+  captured at 67%), `06`=`upgrade_success_restarting`(100%),
+  `07`=`upgrade_complete`(100%, after silent refresh). Screenshots `01`/`02` are
+  pre-flight (file picked / "Kind tips" dialog), before `Start()` runs at all.
+  The four in-between stages (`device_reconnected_ready`@10%,
+  `device_ready_enter_upgrade`@13%, `upgrade_mode_entered_start_transfer`@15%,
+  `start_transfer`@17%) weren't individually screenshotted — they're fast
+  and easy to miss manually — but are real, code-confirmed stages our own
+  progress reporting is currently missing.
+- **One timing-constant discrepancy worth double-checking:**
+  `UpgradeProcessFSM.SendWithRetryGuard` calls the underlying
+  `UsbSerialportFSM.SendWithAckGuard(...)` with an explicit
+  `totalTimeoutMs: 8000` override (retry interval 2000ms, send timeout 3000ms,
+  unchanged). Our native port used **10000ms**, sourced from
+  `ArTransportV2.AckTotalTimeoutMs`'s own default (`protected virtual int
+  AckTotalTimeoutMs => 10000`) — correct for the *unused* `FirmwareUpgradeFlowV2`
+  path, but not what the live `UpgradeProcessFSM` actually passes per-call for
+  the upgrade sequence specifically. Being more patient than retail (10s vs 8s
+  before giving up on an ack) isn't unsafe by itself, but it's a real behavior
+  difference from the tested path and should be reconciled — see
+  `src/PROJECT.md`.
 
 ## Screenshots
 
@@ -178,6 +246,48 @@ connect → straight to Firmware upgrade, no function picker).
 screen (with an actual PCB diagram + port-routing UI), Gimbal (GM Set, partially
 untranslated Chinese labels), and the bb_freq "Update channel" screen including the
 RF-mismatch warning and the band-switch crash dialog.
+
+`screenshots/upgrade/*.png` — a real firmware-upgrade run captured step-by-step
+against the official Windows app, useful as ground truth for the native rewrite's
+own upgrade UI/copy (`src/CaddxTool.Avalonia`). Two separate runs:
+
+- `01`–`07`: retail **v2.2.9_C** (normal Device tab, no function picker), an Ascent
+  VRX Pro going `18_21_7` → `18_21_10`:
+  1. `01-vrx-pro-file-selected-ready` — Device tab, connected, `.img` file already
+     chosen, "Upgrade" button live.
+  2. `02-vrx-pro-kind-tips-confirm-dialog` — the pre-flight confirmation modal,
+     titled **"Kind tips"**: *"During the upgrade, the device may experience the
+     following: the status indicator light may flash abnormally or it may restart
+     on its own. This is normal. Please wait patiently for the firmware upgrade to
+     complete."* plus three bullet reminders (keep the computer online, keep USB
+     devices connected, keep the device powered/charged) and Cancel/Upgrade
+     buttons. Our `ConfirmDialog` should carry equivalent warnings.
+  3. `03-...-08pct-reconnecting-device` — progress bar + label **"Reconnecting
+     device"** at 8%. Confirms the UI surfaces our flow's `RebootClean`→reconnect
+     step as visible progress, not a silent wait.
+  4. `04-...-25pct-file-transfer` — label **"File transfer in progress..."** at 25%
+     (covers our `SendFileStart`/`SendFileData` chunk loop).
+  5. `05-...-67pct-loading-firmware` — label **"Loading firmware"** at 67% (covers
+     `SendFileEnd`/`PollUpgradeStatus` while the device flashes/verifies).
+  6. `06-...-upgrade-successful-restarting` — bar turns green, label **"Upgrade
+     successful, device is restarting"** at ~100%, before the final reboot/
+     reconnect.
+  7. `07-...-upgrade-complete-new-version` — label **"Upgrade is complete"**,
+     Firmware field now reads the new version (`18_21_10`) — confirms the vendor UI
+     re-reads device info after the final reconnect rather than trusting the
+     pre-upgrade value.
+  Overall stage labels worth mirroring in our own progress reporting, in order:
+  *Reconnecting device → File transfer in progress... → Loading firmware →
+  Upgrade successful, device is restarting → Upgrade is complete.*
+- `08-gt-pro-v2013-powerbuild-file-transfer`: a **different, older build
+  (`V2.0.13`, power-user function-picker sidebar — "Upgrade/Hub/RC Mode/Settings/
+  Help", no "Device" tab)**, mid-upgrade on a real **Ascent GT Pro**,
+  `V17.5.15` → `V18.21.7`, "File transfer in progress...". Same stage-label
+  vocabulary as the v2.2.9 run above. Captured on real Windows, where only the
+  unpatched v2.2.9 installer was on hand (no Wine there to run the Patch-4'd
+  exe) — V2.0.13 was used instead simply because it already supports GT Pro
+  without needing that patch. Still useful as independent confirmation that GT
+  Pro firmware upgrade works fine end-to-end.
 
 ## The Wine track
 
@@ -312,6 +422,123 @@ launching the app.** A timer-based poll patch (call `ManualSearchDevices()` ever
 seconds instead of once) would fix this but hasn't been built — see `src/PROJECT.md`
 for why the native rewrite makes this moot anyway (real `udev`/inotify monitoring
 instead of polling).
+
+### Wire-capture harness — running the official app against a fake device
+
+`src/PROJECT.md`'s "Testing strategy" section documents `CaddxTool.FakeDevice`
+(native rewrite, tracked on `master`, `CaddxTool.FakeDevice/README.md` for
+basic usage), a standalone responder that speaks the device side of the
+Ascent protocol over a real `SerialPort`. That doc covers running it against
+this project's own native client over a plain `socat` PTY — no root, no
+kernel module. Getting the **official app** to talk to it too (for a genuine
+vendor-vs-native wire diff) needs everything below, and none of it is needed
+just to use the harness against the native client.
+
+**Done (2026-09-11/12).** Full comparison completed — the official app's and
+the native client's capture logs match almost exactly (command sequence,
+chunk CRCs, ack payload structures, `UPGRADE_STATUS` percentages, the final
+post-upgrade device-info refresh); only cosmetic differences remain (starting
+sequence number, and a Wine `Z:\...` vs. plain Linux path in one payload
+field). Getting there took three separate obstacles, in the order hit:
+
+**1. `socat` PTYs don't work as the transport at all.** The official app's
+serial-open path calls `ioctl(fd, TIOCMGET, ...)` (get modem control line
+status — DTR/RTS/CTS/DSR) immediately after opening, confirmed via `strace`
+on a minimal compiled repro (`SerialPort.Open()` alone, no app involved).
+Unix98 PTYs don't implement this ioctl (`ENOTTY`) — it's a real kernel-level
+gap, not a Wine or socat bug; PTYs have no modem-control-line concept at all,
+unlike a real tty-line-discipline device (including USB-CDC-ACM, which is why
+real hardware never hits this). Fix: a `tty0tty` null-modem kernel module
+(https://github.com/freemed/tty0tty) implements the full ioctl set. Requires
+Secure Boot disabled (unsigned out-of-tree module — `insmod` fails with "Key
+was rejected by service" otherwise) and a manual `sudo insmod`/`chmod 666`
+each session (module isn't installed via dkms/persisted):
+```bash
+cd /tmp && git clone https://github.com/freemed/tty0tty.git && cd tty0tty/module && make
+sudo insmod tty0tty.ko          # creates /dev/tnt0..7 as 4 linked pairs (0-1, 2-3, 4-5, 6-7)
+sudo chmod 666 /dev/tnt0 /dev/tnt1   # whichever pair you're using
+ln -sf /dev/tnt1 ~/wine-caddx-test/dosdevices/com50   # Wine-facing end
+# CaddxTool.FakeDevice listens on the OTHER end (e.g. /dev/tnt0)
+```
+
+**2. Wine's app-level device discovery still can't see it, even once opened.**
+`SerialPort.GetPortNames()` under Wine only ever returns COM1-32 (the static
+legacy `ttyS0-31` mapping) plus whatever COM Wine's own udev-based detection
+dynamically assigns for real USB-serial hardware — confirmed empirically
+(a `GetPortNames()` probe compiled with the prefix's own `csc.exe`); this list
+is regenerated live and excludes anything else, regardless of `dosdevices`
+symlinks or manual `HKLM\HARDWARE\DEVICEMAP\SERIALCOMM` registry edits (that
+key itself is volatile/synthesized fresh, never read back from what was
+written, and doesn't survive across separate `wine` process invocations in
+this environment). Fix: **Patch 5** (`patcher/Program.cs`, opt-in via
+`CADDX_FAKE_PORT=<portname>` env var, e.g. `CADDX_FAKE_PORT=COM50`) — not
+enough to just append a synthetic `UsbDevInfo` to `ManualSearchDevices()`'s
+returned list, since that still routes through `UsbSerialMonitor.AddDevice()`
+→ `VerifyDeviceAvailability()` (an async 300ms-later re-check that calls the
+same raw `GetPortNames()` again, fails, and calls `RemoveDevice()` — a
+"device unplugged" event that kills the session before any bytes are sent).
+Patch 5 instead does `AddDevice`/`VerifyDeviceAvailability`'s success-path job
+itself, synchronously and unconditionally successful, right inside
+`ManualSearchDevices()`: registers in `_connectedDevices`/
+`_portToDeviceIdMap`, sets `IsInserted = true`, fires `DeviceConnected`
+directly. **Patch 6** (same env var) guards `UsbSerialMonitor.RemoveDevice()`
+to no-op for the fake port, as defense-in-depth against the same broken WMI
+watcher via other call paths — not sufficient alone, but harmless combined
+with Patch 5. Both patches are always compiled in but behaviorally inert
+unless `CADDX_FAKE_PORT` is set, same opt-in pattern as Patch 3's
+`CADDX_POWER_USER`.
+
+**3. Ack timeouts, in two unrelated places.** Once the app could see and open
+the fake port, `SENDFILE_DATA` chunks reliably timed out ("Send file chunk Ack
+Timeout"), no matter how long the wait — root-caused to **two separate bugs**,
+not one:
+- `CaddxTool.FakeDevice` itself was sending an empty payload for
+  `SENDFILE_DATA` acks. The real app's ack handler
+  (`UsbSerialportFSM.HandlePacket`, `AR_CMD_SENDFILE_DATA` case) parses that
+  ack via `ParseDataInfo(payload)` — the same structured `ResFileDataInfo`
+  layout as the `SENDFILE_END` ack — which indexes into the byte array
+  unconditionally. An empty payload makes that throw; the exception is
+  swallowed by a catch-and-log around the whole dispatch, so the ack never
+  reaches the app's ack-matching logic at all. No amount of timeout widening
+  could ever have fixed this — fixed on the `master`/native side instead (see
+  `src/PROJECT.md`).
+- Independently, even with a correctly-formed ack, `tty0tty` turned out to
+  genuinely **pace serial throughput to the configured baud rate**, unlike a
+  plain `socat` PTY (zero pacing) — confirmed with a minimal compiled probe
+  (`SerialPort.Write()` wrapped in a `Stopwatch`): writing 200,000 bytes at
+  115200 baud took ~17.4s, exact UART timing. A single 1MB `SENDFILE_DATA`
+  chunk (the real device's own `ReceiveMaxSize`) takes ~91s to physically
+  write — comfortably exceeding the vendor app's own ack-wait constants
+  (`UpgradeProcessFSM.SendWithRetryGuard`/`SendWithRetryGuardDelay`:
+  `retryIntervalMs=2000, totalTimeoutMs=8000, sendTimeoutMs=3000`, bare
+  literal args at each call site, not named consts — the class-level
+  `AckRetryIntervalMs`/`AckTotalTimeoutMs` consts exist but are dead, inlined
+  nowhere). Raising the configured baud rate doesn't help enough — Wine/.NET's
+  `SerialPort` caps it at 131072, still ~80s/MB. **Patch 7** rewrites the three
+  `ldc.i4` literal operands in those two methods' IL directly (find-and-replace
+  on the instruction operand, no new locals/branches needed, since Cecil
+  exposes `Ldc_I4`'s operand as a plain settable `int`) to
+  `retryIntervalMs=200000, totalTimeoutMs=600000, sendTimeoutMs=200000` —
+  applied unconditionally (not gated behind `CADDX_FAKE_PORT`), since real
+  hardware acks near-instantly and never notices a wider timeout; there's no
+  real-device behavior to guard against here, unlike Patches 5/6. First
+  attempt used more modest values (2000→5000/8000→180000/3000→120000) and
+  still failed with a full-chunk resend visible in the capture log — the
+  ack-wait clock in `UsbSerialportFSM.SendWithAckGuard` starts *before* the
+  physical write (registered via the `beforeFrameWrite`/`OnFrameSending`
+  callback, not `afterFrameSent`/`OnFrameSent` — verified by counting
+  positional args against the method signature, not assumed), so
+  `retryIntervalMs` itself has to clear the ~91s write floor, not just
+  `totalTimeoutMs`.
+
+The native (`master`) side needed an analogous, independently-discovered fix:
+`SerialPortAscentTransport`'s `ReadTimeout`/`WriteTimeout` (were 2000ms) and
+`ArConstantsV2.ACK_TOTAL_TIMEOUT_MS` (was 10000ms) hit the exact same
+tty0tty-pacing wall — the very first native-vs-fake-device run over `tty0tty`
+threw a raw unhandled `TimeoutException` mid-write. Not an issue over `socat`
+(no pacing) or real hardware (USB speed), which is why `master`'s own docs
+don't need to explain any of this — see `src/PROJECT.md`'s wire-capture
+harness section for the widened values.
 
 ### IL-patching gotchas (learned the hard way — read before touching `patcher/Program.cs` again)
 
