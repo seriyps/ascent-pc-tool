@@ -25,4 +25,18 @@ public class ResFileDataInfoV2
     }
 
     public string DetailText => Encoding.ASCII.GetString(Detail).TrimEnd('\0');
+
+    // Encoder counterpart to Parse — used by CaddxTool.FakeDevice for the
+    // SENDFILE_END ack.
+    public static byte[] Build(int length, int cursize, int totalsize, int status, string detail)
+    {
+        byte[] buf = new byte[16 + 64];
+        System.BitConverter.GetBytes(length).CopyTo(buf, 0);
+        System.BitConverter.GetBytes(cursize).CopyTo(buf, 4);
+        System.BitConverter.GetBytes(totalsize).CopyTo(buf, 8);
+        System.BitConverter.GetBytes(status).CopyTo(buf, 12);
+        byte[] bytes = Encoding.ASCII.GetBytes(detail ?? "");
+        System.Array.Copy(bytes, 0, buf, 16, System.Math.Min(bytes.Length, 64));
+        return buf;
+    }
 }

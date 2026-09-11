@@ -105,7 +105,24 @@ public class FirmwareUpgradeFlow
             await PollUpgradeStatusAsync(client, progress, ct);
 
             Report(progress, "Reboot", 0.98, "Rebooting device");
-            await ReconnectAsync(ct);
+            client = await ReconnectAsync(ct);
+
+            // Matches UpgradeProcessFSM's Send_ReopenCOM else-branch
+            // (upg_fsm.upgrade_complete@100%): after the final reconnect, the
+            // original app silently re-queries FIND_DEVICE once to refresh the
+            // displayed device info (new firmware version, etc.) — it's not
+            // gating success, so a failure here doesn't fail the whole upgrade.
+            // Confirmed against the real official app's wire traffic via the
+            // wire-capture harness (see src/PROJECT.md): a final cmd=60 request
+            // follows the last UPGRADE_STATUS poll, which this port was missing.
+            try
+            {
+                client.GetDeviceInfo();
+            }
+            catch
+            {
+                // silent refresh only — ignore failures
+            }
 
             Report(progress, "Done", 1.0, "Upgrade complete");
             return FlowResult.Ok("Upgrade complete");

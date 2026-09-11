@@ -25,7 +25,18 @@ public static class ArConstantsV2
 
     // Ack retry/timeout, ported from ArTransportV2.AckRetryIntervalMs/AckTotalTimeoutMs.
     public const int ACK_RETRY_INTERVAL_MS = 2000;
-    public const int ACK_TOTAL_TIMEOUT_MS = 10000;
+    //
+    // Widened well beyond the ported 10000ms: confirmed empirically (wire-capture
+    // harness, see src/PROJECT.md) that a genuinely baud-rate-paced serial
+    // transport — real hardware never is one, but tty0tty (needed for testing
+    // against the official Windows app under Wine, since plain socat PTYs fail
+    // ioctl(TIOCMGET)) actually enforces real UART throughput — can take ~91s to
+    // move a single 1MB SENDFILE_DATA chunk at 115200 baud. A short total-ack
+    // timeout here isn't just "less faithful to the vendor's UpgradeProcessFSM
+    // constant (8000ms)" in that scenario, it's actively wrong: SendWithAck's
+    // initial big Write() already has to survive SerialPortAscentTransport's own
+    // WriteTimeout (see that class) before this budget even starts ticking.
+    public const int ACK_TOTAL_TIMEOUT_MS = 300000;
 
     // Reconnect-after-reboot timing, ported from GD.cs (ReOpenTimeout_Asce/ReElectDelay).
     public const int RECONNECT_TIMEOUT_MS = 60000;

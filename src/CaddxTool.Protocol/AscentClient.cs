@@ -49,11 +49,13 @@ public class AscentClient : IDisposable
     // `expectedAckCmd` (defaults to `cmd`). Resends the identical packet (same
     // seq, incrementing retry count) every time the transport's read times
     // out, until `totalTimeoutMs` has elapsed overall — mirrors
-    // ArTransportV2.SendWithAckAsync/StartAckLoop, except the per-attempt
-    // retry interval is whatever read timeout the transport itself is
-    // configured with (SerialPortAscentTransport defaults to 2000ms, matching
-    // ArConstantsV2.ACK_RETRY_INTERVAL_MS) rather than being independently
-    // configurable here.
+    // ArTransportV2.SendWithAckAsync/StartAckLoop, except the per-attempt retry
+    // interval is whatever read timeout the transport itself is configured with
+    // (SerialPortAscentTransport, not independently configurable here) rather
+    // than ArConstantsV2.ACK_RETRY_INTERVAL_MS directly — the two are only
+    // loosely related in practice now that the transport's timeout is set much
+    // higher to survive slow (e.g. baud-paced virtual serial) transports; see
+    // SerialPortAscentTransport's own comment.
     public AckResult SendWithAck(uint cmd, byte[]? payload, uint expectedAckCmd = 0,
         int totalTimeoutMs = ArConstantsV2.ACK_TOTAL_TIMEOUT_MS, CancellationToken ct = default)
     {

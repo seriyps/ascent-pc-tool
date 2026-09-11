@@ -42,6 +42,32 @@ public class ResDeviceInfoV2
         return info;
     }
 
+    // Encoder counterpart to Parse — used by CaddxTool.FakeDevice to emit a
+    // FIND_DEVICE response indistinguishable in shape from a real device's.
+    public static byte[] Build(int receiveMaxSize, string sdkVersion, string deviceName, int cpuTemp,
+        string firmwareInfo, string serialNumber, string hardwareVersion, int status = 0, string detail = "")
+    {
+        byte[] buf = new byte[300];
+        int o = 0;
+        System.BitConverter.GetBytes(receiveMaxSize).CopyTo(buf, o); o += 4;
+        WriteAscii(buf, o, 32, sdkVersion); o += 32;
+        WriteAscii(buf, o, 64, deviceName); o += 64;
+        System.BitConverter.GetBytes(cpuTemp).CopyTo(buf, o); o += 4;
+        WriteAscii(buf, o, 64, firmwareInfo); o += 64;
+        WriteAscii(buf, o, 32, serialNumber); o += 32;
+        WriteAscii(buf, o, 32, hardwareVersion); o += 32;
+        System.BitConverter.GetBytes(status).CopyTo(buf, o); o += 4;
+        WriteAscii(buf, o, 64, detail); o += 64;
+        return buf;
+    }
+
+    private static void WriteAscii(byte[] buf, int offset, int fieldLength, string value)
+    {
+        byte[] bytes = Encoding.ASCII.GetBytes(value ?? "");
+        int n = System.Math.Min(bytes.Length, fieldLength);
+        System.Array.Copy(bytes, 0, buf, offset, n);
+    }
+
     private static string Ascii(byte[] bytes) => Encoding.ASCII.GetString(bytes).TrimEnd('\0');
 
     public override string ToString()

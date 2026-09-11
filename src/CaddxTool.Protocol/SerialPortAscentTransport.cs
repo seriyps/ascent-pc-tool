@@ -10,8 +10,17 @@ public class SerialPortAscentTransport : IAscentTransport
     {
         _port = new SerialPort(portName, baudRate, Parity.None, 8, StopBits.One)
         {
-            ReadTimeout = 2000,
-            WriteTimeout = 2000,
+            // Generous rather than tight: real USB-CDC-ACM hardware transfers at
+            // USB speed regardless of this nominal baud rate, so it never notices
+            // a longer timeout. But some virtual serial transports genuinely
+            // enforce baud-accurate throughput — confirmed with tty0tty (used to
+            // test against the official Windows app under Wine, since it's the
+            // only local option that implements TIOCMGET; plain socat PTYs don't
+            // pace at all) — where a single 1MB SENDFILE_DATA chunk can take ~91s
+            // to write at 115200 baud. 2000ms blew up mid-write on that transport
+            // with an unhandled TimeoutException; see src/PROJECT.md.
+            ReadTimeout = 150000,
+            WriteTimeout = 150000,
         };
         _port.Open();
     }

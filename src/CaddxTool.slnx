@@ -3,4 +3,5 @@
   <Project Path="CaddxTool.Protocol/CaddxTool.Protocol.csproj" />
   <Project Path="CaddxTool.Protocol.Tests/CaddxTool.Protocol.Tests.csproj" />
   <Project Path="CaddxTool.Avalonia/CaddxTool.Avalonia.csproj" />
+  <Project Path="CaddxTool.FakeDevice/CaddxTool.FakeDevice.csproj" />
 </Solution>
