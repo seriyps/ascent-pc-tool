@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using CaddxTool.Protocol;
@@ -46,7 +47,11 @@ public partial class MainWindow : Window
             AppendLog($"Live hotplug detection unavailable ({ex.Message}) — use Scan manually after plugging in.");
         }
 
-        Closed += (_, _) => _hotplugWatcher?.Dispose();
+        Closed += (_, _) =>
+        {
+            _hotplugWatcher?.Dispose();
+            _connectedTransport?.Dispose();
+        };
     }
 
     private void OnHotplugChanged()
@@ -120,7 +125,13 @@ public partial class MainWindow : Window
             _connectedCandidate = item.Candidate;
             _deviceInfo = info;
 
+            // A previous session's success/failure color shouldn't carry over
+            // to a different (re)connection.
+            TxtStatus.ClearValue(TextBlock.ForegroundProperty);
+            ProgressUpgrade.ClearValue(ProgressBar.ForegroundProperty);
+
             TxtDeviceInfo.Text = info.ToString();
+            TxtFirmwareHint.Text = $"Expect a firmware filename containing \"{FirmwareNameValidator.ExpectedPrefix(Ascii(info.FirmwareInfo))}\" for this device.";
             BtnChooseFile.IsEnabled = true;
             AppendLog("Connected.");
         }
@@ -139,9 +150,9 @@ public partial class MainWindow : Window
     {
         IReadOnlyList<IStorageFile> files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "Select firmware .bin",
+            Title = "Select firmware .img",
             AllowMultiple = false,
-            FileTypeFilter = new[] { new FilePickerFileType("Firmware binary") { Patterns = new[] { "*.bin" } } },
+            FileTypeFilter = new[] { new FilePickerFileType("Firmware image") { Patterns = new[] { "*.img" } } },
         });
 
         if (files.Count == 0)
@@ -151,6 +162,28 @@ public partial class MainWindow : Window
 
         _firmwarePath = files[0].Path.LocalPath;
         TxtFilePath.Text = _firmwarePath;
+
+        if (_deviceInfo is not null)
+        {
+            string firmwareInfo = Ascii(_deviceInfo.FirmwareInfo);
+            string fileName = Path.GetFileName(_firmwarePath);
+            if (FirmwareNameValidator.LooksMismatched(fileName, firmwareInfo))
+            {
+                bool proceed = await ConfirmDialog.Ask(this,
+                    $"\"{fileName}\" doesn't look like it matches this device's firmware (\"{firmwareInfo}\").\n\n" +
+                    "Flashing the wrong image can brick the device. Continue anyway?");
+                if (!proceed)
+                {
+                    _firmwarePath = null;
+                    TxtFilePath.Text = "";
+                    BtnUpgrade.IsEnabled = false;
+                    AppendLog("Firmware selection cancelled (name doesn't match connected device).");
+                    return;
+                }
+                AppendLog($"Warning: \"{fileName}\" doesn't match device firmware \"{firmwareInfo}\" — proceeding anyway (user override).");
+            }
+        }
+
         BtnUpgrade.IsEnabled = _connectedTransport is not null;
     }
 
@@ -193,6 +226,8 @@ public partial class MainWindow : Window
         FlowResult result = await flow.RunAsync(_firmwarePath, progress);
 
         TxtStatus.Text = result.Success ? "Upgrade complete." : $"Upgrade failed: {result.Message}";
+        TxtStatus.Foreground = result.Success ? Brushes.Green : Brushes.OrangeRed;
+        ProgressUpgrade.Foreground = result.Success ? Brushes.Green : Brushes.OrangeRed;
         AppendLog(result.Success ? $"Upgrade complete: {result.Message}" : $"Upgrade failed: {result.Message}");
 
         TxtDeviceInfo.Text = "Not connected — rescan and reconnect to verify the new firmware.";

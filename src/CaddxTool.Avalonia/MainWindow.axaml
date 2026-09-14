@@ -22,8 +22,9 @@
             <TextBlock Text="Firmware upgrade" FontWeight="Bold" FontSize="16"/>
             <TextBlock TextWrapping="Wrap" Foreground="OrangeRed"
                        Text="This writes to the device's flash. A failed or interrupted upgrade can brick the hardware — double-check the file before confirming."/>
+            <TextBlock Name="TxtFirmwareHint" TextWrapping="Wrap" FontStyle="Italic"/>
             <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Name="BtnChooseFile" Content="Choose .bin file..." Click="OnChooseFileClick" IsEnabled="False"/>
+                <Button Name="BtnChooseFile" Content="Choose .img file..." Click="OnChooseFileClick" IsEnabled="False"/>
                 <TextBlock Name="TxtFilePath" Text="(no file selected)" VerticalAlignment="Center"/>
             </StackPanel>
             <Button Name="BtnUpgrade" Content="Upgrade" Click="OnUpgradeClick" IsEnabled="False"/>
