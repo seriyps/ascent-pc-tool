@@ -13,7 +13,9 @@ public class AscentClient : IDisposable
 {
     private readonly IAscentTransport _transport;
     private readonly Func<DateTime> _now;
-    private uint _seq = 1;
+    // Starts at 0 to match the vendor's observed first-request seq (confirmed
+    // via the fake-device wire capture, see src/PROJECT.md).
+    private uint _seq;
 
     public AscentClient(IAscentTransport transport, Func<DateTime>? now = null)
     {
