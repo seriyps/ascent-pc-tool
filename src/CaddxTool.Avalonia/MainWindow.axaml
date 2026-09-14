@@ -4,10 +4,15 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="640" d:DesignHeight="560"
         x:Class="CaddxTool.Avalonia.MainWindow"
-        Title="Caddx Ascent Tool"
+        Title="C@ddx A$cent PC Tool"
         Width="640" Height="600">
     <ScrollViewer>
         <StackPanel Margin="16" Spacing="10">
+
+            <Border Background="#14000000" BorderBrush="#40000000" BorderThickness="1" CornerRadius="4" Padding="10">
+                <TextBlock TextWrapping="Wrap" Foreground="Gray" FontSize="12"
+                           Text="Unofficial, community-built tool — not affiliated with or endorsed by Caddx. Use at your own risk."/>
+            </Border>
 
             <TextBlock Text="Device" FontWeight="Bold" FontSize="16"/>
             <StackPanel Orientation="Horizontal" Spacing="8">
