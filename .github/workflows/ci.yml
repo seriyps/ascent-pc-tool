@@ -13,8 +13,8 @@ jobs:
     outputs:
       web: ${{ steps.filter.outputs.web }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
@@ -26,10 +26,10 @@ jobs:
     if: needs.changes.outputs.web == 'true'  # only run when there are changes in `web/`
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: "npm"
@@ -51,7 +51,7 @@ jobs:
         run: tar -C web/dist -czf ascent-flasher-web.tar.gz .
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ascent-flasher-web
           path: ascent-flasher-web.tar.gz
@@ -59,10 +59,10 @@ jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 
@@ -82,7 +82,7 @@ jobs:
           -o publish/linux-x64
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ascent-flasher-linux-x64
           path: publish/linux-x64/ascent-flasher
@@ -94,10 +94,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "10.0.x"
 
@@ -114,7 +114,7 @@ jobs:
           tar -C publish/linux-x64 -czf "dist/ascent-flasher-${{ github.ref_name }}-linux-x64.tar.gz" ascent-flasher
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: "npm"
@@ -132,7 +132,7 @@ jobs:
         run: tar -C web/dist -czf "dist/ascent-flasher-${{ github.ref_name }}-web.tar.gz" .
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*.tar.gz
           body: |
