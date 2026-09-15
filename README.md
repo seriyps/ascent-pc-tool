@@ -32,6 +32,11 @@ CI builds this on every push (download it from the workflow run's Artifacts
 tab) and attaches it as a `.tar.gz` to the GitHub Release created for any
 pushed `v*` tag.
 
+## Web version
+
+There's also a minimal browser-based version — no install, works on any OS
+with a Web Serial-capable browser. See [`web/README.md`](web/README.md).
+
 ## Disclaimer
 
 Caddx's website doesn't publish a license agreement for the PC Tool, and I don't

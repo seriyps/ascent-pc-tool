@@ -1,0 +1,85 @@
+body {
+  font-family: system-ui, sans-serif;
+  max-width: 640px;
+  margin: 2rem auto;
+  padding: 0 1rem;
+  color: #222;
+}
+
+.subtitle {
+  font-weight: normal;
+  font-size: 0.6em;
+  color: #666;
+}
+
+.banner {
+  background: rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(0, 0, 0, 0.25);
+  border-radius: 4px;
+  padding: 0.6rem 0.8rem;
+  color: #555;
+  font-size: 0.85rem;
+  margin: 0.75rem 0;
+}
+
+.banner-warn {
+  background: #fff3e0;
+  border-color: #e65100;
+  color: #e65100;
+}
+
+.warn {
+  color: orangered;
+}
+
+.hint {
+  font-style: italic;
+  color: #555;
+}
+
+section {
+  margin-top: 1.5rem;
+}
+
+.progress-track {
+  background: #eee;
+  border-radius: 4px;
+  height: 18px;
+  overflow: hidden;
+  margin: 0.5rem 0;
+}
+
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: #2196f3;
+  transition: width 0.2s ease;
+}
+
+.progress-fill.success {
+  background: #2e7d32;
+}
+
+.progress-fill.failure {
+  background: orangered;
+}
+
+#status-text.success {
+  color: #2e7d32;
+}
+
+#status-text.failure {
+  color: orangered;
+}
+
+#log {
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 0.5rem;
+  height: 150px;
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}

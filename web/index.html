@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>C@ddx A$cent PC Tool (Web)</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <h1>C@ddx A$cent PC Tool <span class="subtitle">(Web)</span></h1>
+
+      <div class="banner">
+        Unofficial, community-built tool — not affiliated with or endorsed by
+        Caddx. Use at your own risk.
+      </div>
+
+      <div id="unsupported-banner" class="banner banner-warn" hidden>
+        This browser doesn't support the Web Serial API. Use a recent
+        Chrome, Edge, or another Chromium-based browser, or Firefox 151+.
+      </div>
+
+      <section>
+        <h2>Device</h2>
+        <button id="btn-connect" type="button">Connect</button>
+        <span class="hint">— in the browser's port picker, look for "SerialGadget" (VTX units) or "VRX Gadget..." (VRX receivers)</span>
+        <p id="device-info">Not connected.</p>
+      </section>
+
+      <section>
+        <h2>Firmware upgrade</h2>
+        <p class="warn">
+          This writes to the device's flash. A failed or interrupted upgrade
+          can brick the hardware — double-check the file before confirming.
+        </p>
+        <p id="firmware-hint" class="hint"></p>
+        <input id="file-input" type="file" accept=".img" disabled />
+        <button id="btn-upgrade" type="button" disabled>Upgrade</button>
+        <div class="progress-track">
+          <div id="progress-bar" class="progress-fill"></div>
+        </div>
+        <p id="status-text"></p>
+        <pre id="log"></pre>
+      </section>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
